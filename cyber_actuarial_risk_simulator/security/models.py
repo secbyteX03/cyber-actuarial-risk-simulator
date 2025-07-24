@@ -44,4 +44,12 @@ class JWTRevocation(Base):
     jti = Column(String(36), unique=True, nullable=False, index=True)
     revoked_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-Index('ix_jwt_revocation_jti', JWTRevocation.jti) 
+Index('ix_jwt_revocation_jti', JWTRevocation.jti)
+
+class PasswordHistory(Base):
+    __tablename__ = 'password_history'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    changed_at = Column(DateTime, default=datetime.datetime.utcnow)
+    user = relationship('User', backref=backref('password_history', lazy='dynamic')) 

@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
 import numpy as np
 import plotly.graph_objs as go
 import plotly.io as pio
@@ -15,6 +15,12 @@ from flask_limiter.util import get_remote_address
 from flask_bcrypt import Bcrypt
 from flask_dance.contrib.keycloak import make_keycloak_blueprint, keycloak
 from dotenv import load_dotenv
+from security.auth_service import AuthService
+from security.rbac_middleware import rbac_required
+from security.models import User, Role, APIToken, JWTRevocation, Base
+from security.schemas import UserRegisterSchema, UserLoginSchema, MFAVerifySchema, APITokenSchema
+import jwt
+from sqlalchemy.orm import sessionmaker
 
 # Mock API keys and ingester for demonstration
 API_KEYS = {
@@ -95,6 +101,16 @@ keycloak_bp = make_keycloak_blueprint(
 )
 app.register_blueprint(keycloak_bp, url_prefix="/login")
 
+# Setup SQLAlchemy session for PostgreSQL
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db.engine)
+
+# Load RSA keys for JWT
+with open(os.getenv('JWT_PRIVATE_KEY_PATH', 'jwt_private.pem'), 'r') as f:
+    jwt_private_key = f.read()
+with open(os.getenv('JWT_PUBLIC_KEY_PATH', 'jwt_public.pem'), 'r') as f:
+    jwt_public_key = f.read()
+
+auth_service = AuthService(db_session=SessionLocal(), jwt_private_key=jwt_private_key, jwt_public_key=jwt_public_key)
 
 @app.route('/')
 def index():
@@ -102,43 +118,24 @@ def index():
 
 # --- User Registration Endpoint (JWT) ---
 @app.route('/register', methods=['POST'])
-@limiter.limit("5 per minute")
 def register():
     data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-    role = data.get('role', 'RiskAnalyst')  # Default role
-    if not email or not password:
-        return jsonify({'msg': 'Missing email or password'}), 400
-    if user_datastore.find_user(email=email):
-        return jsonify({'msg': 'User already exists'}), 400
-    user = user_datastore.create_user(
-        email=email,
-        password=hash_password(password),
-        fs_uniquifier=os.urandom(16).hex(),
-        active=True
-    )
-    db.session.commit()
-    # Assign role
-    user_datastore.add_role_to_user(user, role)
-    db.session.commit()
-    return jsonify({'msg': 'User registered'}), 201
+    try:
+        user = auth_service.register_user(data)
+        return jsonify({'msg': 'User registered'}), 201
+    except Exception as e:
+        return jsonify({'msg': str(e)}), 400
 
 # --- User Login Endpoint (JWT) ---
 @app.route('/login', methods=['POST'])
-@limiter.limit("10 per minute")
 def login():
     data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-    user = user_datastore.find_user(email=email)
-    if not user or not user.verify_and_update_password(password):
-        return jsonify({'msg': 'Bad credentials'}), 401
-    if not user.active:
-        return jsonify({'msg': 'User inactive'}), 403
-    access_token = create_access_token(identity=user.id, additional_claims={'roles': [r.name for r in user.roles]})
-    refresh_token = create_refresh_token(identity=user.id)
-    return jsonify(access_token=access_token, refresh_token=refresh_token)
+    try:
+        tokens = auth_service.login_user(data)
+        resp = jsonify(tokens)
+        return auth_service.set_secure_cookies(resp, tokens['access_token'])
+    except Exception as e:
+        return jsonify({'msg': str(e)}), 401
 
 # --- Refresh Token Endpoint ---
 @app.route('/refresh', methods=['POST'])
@@ -229,6 +226,18 @@ def api_risk_chart():
     fig.update_layout(title='Simulated Loss Distribution', xaxis_title='Loss', yaxis_title='Frequency')
     chart_json = pio.to_json(fig)
     return chart_json
+
+@app.route('/api/simulations')
+@rbac_required(['RiskAnalyst'])
+def api_simulations():
+    # Placeholder: return mock simulation data
+    return jsonify({'simulations': 'Simulation results here'})
+
+@app.route('/api/audit-logs')
+@rbac_required(['Auditor'])
+def api_audit_logs():
+    # Placeholder: return mock audit log data
+    return jsonify({'audit_logs': 'Audit logs here'})
 
 # --- DB Init Instructions ---
 # To initialize the database:
