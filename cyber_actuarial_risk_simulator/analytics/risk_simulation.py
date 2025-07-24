@@ -19,6 +19,7 @@ def monte_carlo_simulation(breach_likelihood, loss_distribution, iterations=1000
             loss = loss_distribution()
         else:
             loss = 0.0
+            
         losses.append(loss)
     return np.array(losses)
 
