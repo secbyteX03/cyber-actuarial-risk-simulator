@@ -4,28 +4,32 @@ Module for ingesting threat intelligence feeds.
 
 import requests
 import pandas as pd
+import time
+from ..blockchain.audit_logger import BlockchainLedger
 
 class ThreatFeedIngester:
-    def __init__(self, api_keys: dict):
+    def __init__(self, api_keys: dict, audit_logger: BlockchainLedger = None):
         """
-        Initialize with a dictionary of API keys.
+        Initialize with a dictionary of API keys and optional audit logger.
         Example: {'VIRUSTOTAL_API_KEY': '...', 'IBM_X_FORCE_API_KEY': '...'}
         """
         self.api_keys = api_keys
+        self.audit_logger = audit_logger
 
     def fetch_virustotal(self):
         """
         Fetch threat data from VirusTotal API. Returns JSON or mock data if unavailable.
+        Logs the event to the blockchain audit logger if available.
         """
         url = 'https://www.virustotal.com/api/v3/files'
         headers = {'x-apikey': self.api_keys.get('VIRUSTOTAL_API_KEY', '')}
         try:
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
         except Exception as e:
             # Mock response for testing
-            return {
+            data = {
                 'data': [
                     {'id': 'mock1', 'type': 'file', 'attributes': {'malicious': 1}},
                     {'id': 'mock2', 'type': 'file', 'attributes': {'malicious': 0}}
@@ -33,20 +37,29 @@ class ThreatFeedIngester:
                 'source': 'mock_virustotal',
                 'error': str(e)
             }
+        if self.audit_logger:
+            self.audit_logger.add_block({
+                'event': 'fetch_virustotal',
+                'timestamp': time.time(),
+                'result': 'success' if 'error' not in data else 'error',
+                'details': data.get('error', None)
+            })
+        return data
 
     def fetch_ibm_xforce(self):
         """
         Fetch threat data from IBM X-Force API. Returns JSON or mock data if unavailable.
+        Logs the event to the blockchain audit logger if available.
         """
         url = 'https://api.xforce.ibmcloud.com/malware'
         headers = {'Authorization': f'Bearer {self.api_keys.get("IBM_X_FORCE_API_KEY", "")}' }
         try:
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
         except Exception as e:
             # Mock response for testing
-            return {
+            data = {
                 'malware': [
                     {'name': 'MockMalwareA', 'risk': 'high'},
                     {'name': 'MockMalwareB', 'risk': 'medium'}
@@ -54,6 +67,14 @@ class ThreatFeedIngester:
                 'source': 'mock_ibm_xforce',
                 'error': str(e)
             }
+        if self.audit_logger:
+            self.audit_logger.add_block({
+                'event': 'fetch_ibm_xforce',
+                'timestamp': time.time(),
+                'result': 'success' if 'error' not in data else 'error',
+                'details': data.get('error', None)
+            })
+        return data
 
     def save_to_csv(self, data, filename):
         """
