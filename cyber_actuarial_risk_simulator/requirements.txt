@@ -4,4 +4,5 @@ numpy
 scikit-learn
 requests
 plotly 
+joblib
 # hashlib is used in blockchain/audit_logger.py (standard library, no install needed) 

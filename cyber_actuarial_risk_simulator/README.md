@@ -20,7 +20,20 @@ This project simulates and analyzes cyber risk using actuarial and data science 
 
 1. Install dependencies: `pip install -r requirements.txt`
 2. Configure API keys in `config.py`
-3. Run the dashboard: `python dashboard/app.py`
+3. **Run the dashboard from the project root directory:**
+
+   ```sh
+   python -m cyber_actuarial_risk_simulator.dashboard.app
+   ```
+
+   - Make sure you are in the `Cyber-Actuarial Financial Risk Simulator` directory (the one containing `cyber_actuarial_risk_simulator/`).
+   - This ensures all package imports work correctly.
+
+## Troubleshooting
+
+- **ModuleNotFoundError: No module named 'analytics'**
+  - This occurs if you run the app with `python cyber_actuarial_risk_simulator/dashboard/app.py`.
+  - Always use the `-m` flag from the project root as shown above.
 
 ## Blockchain Audit Logger
 
