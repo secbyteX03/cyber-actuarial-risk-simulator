@@ -100,31 +100,153 @@ app.register_blueprint(keycloak_bp, url_prefix="/login")
 def index():
     return render_template('index.html')
 
+# --- User Registration Endpoint (JWT) ---
+@app.route('/register', methods=['POST'])
+@limiter.limit("5 per minute")
+def register():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+    role = data.get('role', 'RiskAnalyst')  # Default role
+    if not email or not password:
+        return jsonify({'msg': 'Missing email or password'}), 400
+    if user_datastore.find_user(email=email):
+        return jsonify({'msg': 'User already exists'}), 400
+    user = user_datastore.create_user(
+        email=email,
+        password=hash_password(password),
+        fs_uniquifier=os.urandom(16).hex(),
+        active=True
+    )
+    db.session.commit()
+    # Assign role
+    user_datastore.add_role_to_user(user, role)
+    db.session.commit()
+    return jsonify({'msg': 'User registered'}), 201
+
+# --- User Login Endpoint (JWT) ---
+@app.route('/login', methods=['POST'])
+@limiter.limit("10 per minute")
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+    user = user_datastore.find_user(email=email)
+    if not user or not user.verify_and_update_password(password):
+        return jsonify({'msg': 'Bad credentials'}), 401
+    if not user.active:
+        return jsonify({'msg': 'User inactive'}), 403
+    access_token = create_access_token(identity=user.id, additional_claims={'roles': [r.name for r in user.roles]})
+    refresh_token = create_refresh_token(identity=user.id)
+    return jsonify(access_token=access_token, refresh_token=refresh_token)
+
+# --- Refresh Token Endpoint ---
+@app.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    identity = get_jwt_identity()
+    user = User.query.get(identity)
+    access_token = create_access_token(identity=user.id, additional_claims={'roles': [r.name for r in user.roles]})
+    return jsonify(access_token=access_token)
+
+# --- Logout (JWT, stateless) ---
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    # JWT is stateless; client should discard token
+    return jsonify({'msg': 'Logged out'}), 200
+
+# --- SSO Login/Logout (Keycloak) ---
+@app.route('/sso')
+def sso_login():
+    if not keycloak.authorized:
+        return redirect(url_for('keycloak.login'))
+    resp = keycloak.get('/protocol/openid-connect/userinfo')
+    if not resp.ok:
+        return jsonify({'msg': 'Failed to fetch user info'}), 400
+    info = resp.json()
+    email = info.get('email')
+    user = user_datastore.find_user(email=email)
+    if not user:
+        user = user_datastore.create_user(
+            email=email,
+            password=hash_password(os.urandom(16).hex()),
+            fs_uniquifier=os.urandom(16).hex(),
+            active=True
+        )
+        db.session.commit()
+        user_datastore.add_role_to_user(user, 'RiskAnalyst')
+        db.session.commit()
+    access_token = create_access_token(identity=user.id, additional_claims={'roles': [r.name for r in user.roles]})
+    refresh_token = create_refresh_token(identity=user.id)
+    return jsonify(access_token=access_token, refresh_token=refresh_token)
+
+@app.route('/sso/logout')
+def sso_logout():
+    token = keycloak.token['access_token'] if keycloak.authorized else None
+    keycloak.token = None
+    return redirect(url_for('index'))
+
+# --- RBAC Decorator for JWT ---
+def jwt_roles_required(*roles):
+    def wrapper(fn):
+        from functools import wraps
+        @wraps(fn)
+        @jwt_required()
+        def decorator(*args, **kwargs):
+            claims = get_jwt_identity()
+            user = User.query.get(claims)
+            user_roles = [r.name for r in user.roles]
+            if not any(role in user_roles for role in roles):
+                return jsonify({'msg': 'Insufficient role'}), 403
+            return fn(*args, **kwargs)
+        return decorator
+    return wrapper
+
+# --- Protect API Endpoints with RBAC ---
 @app.route('/api/threat-data')
+@jwt_roles_required('CISO', 'RiskAnalyst')
 def api_threat_data():
-    # Return latest threat feed JSON (mocked)
     return jsonify(MOCK_THREAT_DATA)
 
 @app.route('/api/risk-metrics')
+@jwt_roles_required('CISO', 'RiskAnalyst')
 def api_risk_metrics():
-    # Return VaR and expected loss (mocked)
     return jsonify({
         'value_at_risk': float(MOCK_VAR),
         'expected_loss': float(MOCK_EXPECTED_LOSS)
     })
 
 @app.route('/api/alerts')
+@jwt_roles_required('CISO', 'RiskAnalyst', 'Auditor')
 def api_alerts():
-    # Return active anomalies (mocked)
     return jsonify({'active_alerts': MOCK_ALERTS})
 
 @app.route('/api/risk-chart')
+@jwt_roles_required('CISO', 'RiskAnalyst')
 def api_risk_chart():
-    # Return a Plotly histogram of simulated losses (as JSON)
     fig = go.Figure(data=[go.Histogram(x=MOCK_LOSSES, nbinsx=50)])
     fig.update_layout(title='Simulated Loss Distribution', xaxis_title='Loss', yaxis_title='Frequency')
     chart_json = pio.to_json(fig)
     return chart_json
+
+# --- DB Init Instructions ---
+# To initialize the database:
+#   flask db init
+#   flask db migrate
+#   flask db upgrade
+# To create roles:
+#   with app.app_context():
+#       for r in ['CISO', 'RiskAnalyst', 'Auditor']:
+#           if not Role.query.filter_by(name=r).first():
+#               db.session.add(Role(name=r))
+#       db.session.commit()
+#
+# To create an admin user:
+#   user_datastore.create_user(email='admin@example.com', password=hash_password('password'), fs_uniquifier='unique', active=True)
+#   db.session.commit()
+#   user_datastore.add_role_to_user(user, 'CISO')
+#   db.session.commit()
 
 if __name__ == '__main__':
     app.run(debug=True) 

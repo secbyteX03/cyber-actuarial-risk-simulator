@@ -6,3 +6,10 @@ Flask-SQLAlchemy
 Flask-Migrate
 Flask-Dance
 python-dotenv 
+flask-jwt-extended
+pyotp
+redis
+pydantic
+zxcvbn
+cryptography
+psycopg2-binary 
