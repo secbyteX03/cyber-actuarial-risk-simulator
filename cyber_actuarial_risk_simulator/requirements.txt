@@ -1,8 +1,8 @@
-flask
-pandas
-numpy
-scikit-learn
-requests
-plotly 
-joblib
-# hashlib is used in blockchain/audit_logger.py (standard library, no install needed) 
+Flask-JWT-Extended
+Flask-Security-Too
+Flask-Bcrypt
+Flask-Limiter
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-Dance
+python-dotenv 
