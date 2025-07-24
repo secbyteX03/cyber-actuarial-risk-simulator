@@ -4,9 +4,258 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cyber Actuarial Financial Risk Simulator</title>
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Plotly.js CDN -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #e0eafc 0%, #cfdef3 100%);
+            min-height: 100vh;
+        }
+        .dashboard-title {
+            margin: 2.5rem 0 1.5rem 0;
+            font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+            font-size: 2.7rem;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 8px rgba(44,62,80,0.08);
+        }
+        .card {
+            border-radius: 1.1rem;
+            box-shadow: 0 4px 24px 0 rgba(44,62,80,0.10);
+            border: none;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+        .card:hover {
+            box-shadow: 0 8px 32px 0 rgba(44,62,80,0.18);
+            transform: translateY(-2px) scale(1.01);
+        }
+        .card-header {
+            background: linear-gradient(90deg, #6dd5ed 0%, #2193b0 100%);
+            color: #fff;
+            font-weight: 600;
+            font-size: 1.15rem;
+            border-top-left-radius: 1.1rem;
+            border-top-right-radius: 1.1rem;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 8px 0 rgba(33,147,176,0.08);
+        }
+        .card-body {
+            background: #fafdff;
+            border-bottom-left-radius: 1.1rem;
+            border-bottom-right-radius: 1.1rem;
+        }
+        .alert-panel {
+            max-height: 250px;
+            overflow-y: auto;
+            background: #fff6f6;
+            border-radius: 0.7rem;
+            box-shadow: 0 2px 8px 0 rgba(231,76,60,0.07);
+            padding: 0.5rem 0.5rem 0.5rem 0.5rem;
+        }
+        #alert-list .list-group-item {
+            border: none;
+            border-radius: 0.5rem;
+            margin-bottom: 0.4rem;
+            font-size: 1.05rem;
+            transition: background 0.2s, color 0.2s;
+        }
+        #alert-list .list-group-item-danger {
+            background: linear-gradient(90deg, #ffb3b3 0%, #ffcccc 100%);
+            color: #a94442;
+            font-weight: 500;
+        }
+        #alert-list .list-group-item-danger:hover {
+            background: #ffebee;
+            color: #c0392b;
+        }
+        #alert-list .list-group-item-success {
+            background: linear-gradient(90deg, #d4fc79 0%, #96e6a1 100%);
+            color: #256029;
+            font-weight: 500;
+        }
+        #alert-list .list-group-item-success:hover {
+            background: #eafaf1;
+            color: #145a32;
+        }
+        /* Responsive tweaks */
+        @media (max-width: 991px) {
+            .dashboard-title { font-size: 2.1rem; }
+            .card-body { padding: 1rem; }
+        }
+        @media (max-width: 575px) {
+            .dashboard-title { font-size: 1.4rem; }
+            .card { margin-bottom: 1.2rem; }
+        }
+    </style>
 </head>
 <body>
-    <h1>Cyber Actuarial Financial Risk Simulator</h1>
-    <p>Welcome to the dashboard. Visualizations and analytics will appear here.</p>
+<div class="container-fluid">
+    <h1 class="dashboard-title text-center">Cyber Actuarial Financial Risk Simulator</h1>
+    <div class="row g-4">
+        <!-- Threat Heatmap -->
+        <div class="col-lg-6 col-md-12">
+            <div class="card">
+                <div class="card-header">Real-time Threat Heatmap</div>
+                <div class="card-body">
+                    <div id="threat-heatmap" style="height:350px;"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Loss Distribution Histogram -->
+        <div class="col-lg-6 col-md-12">
+            <div class="card">
+                <div class="card-header">Loss Distribution Histogram</div>
+                <div class="card-body">
+                    <div id="loss-histogram" style="height:350px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row g-4 mt-2">
+        <!-- Risk Metrics Gauges -->
+        <div class="col-lg-8 col-md-12">
+            <div class="card">
+                <div class="card-header">Risk Metrics</div>
+                <div class="card-body d-flex flex-wrap justify-content-around">
+                    <div id="var-gauge" style="width:300px;height:250px;"></div>
+                    <div id="expected-loss-gauge" style="width:300px;height:250px;"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Alert Notification Panel -->
+        <div class="col-lg-4 col-md-12">
+            <div class="card">
+                <div class="card-header">Alert Notifications</div>
+                <div class="card-body alert-panel" id="alert-panel">
+                    <ul class="list-group" id="alert-list"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Fetch and render threat heatmap (mock: random geo points)
+function renderThreatHeatmap() {
+    fetch('/api/threat-data')
+        .then(res => res.json())
+        .then(data => {
+            // Mock: generate random lat/lon for demo
+            let lats = Array.from({length: 30}, () => 20 + Math.random() * 40);
+            let lons = Array.from({length: 30}, () => -130 + Math.random() * 100);
+            let z = Array.from({length: 30}, () => Math.floor(Math.random() * 10));
+            let trace = {
+                type: 'densitymapbox',
+                lat: lats,
+                lon: lons,
+                z: z,
+                radius: 20,
+                colorscale: 'YlOrRd',
+                showscale: false
+            };
+            let layout = {
+                mapbox: {
+                    style: 'open-street-map',
+                    center: {lat: 40, lon: -95},
+                    zoom: 2.5
+                },
+                margin: {t: 0, b: 0, l: 0, r: 0},
+                height: 320
+            };
+            Plotly.newPlot('threat-heatmap', [trace], layout, {displayModeBar: false, responsive: true, mapboxAccessToken: 'pk.eyJ1IjoiZGVtb3VzZXIiLCJhIjoiY2t2b2Z6b2JwMGF2dDJ2cGZ2b2J6b2J6bSJ9.2v1w0kQw1kQw1kQw1kQw1kQ'});
+        });
+}
+
+// Fetch and render loss distribution histogram
+function renderLossHistogram() {
+    fetch('/api/risk-chart')
+        .then(res => res.json())
+        .then(fig => {
+            Plotly.react('loss-histogram', fig.data, fig.layout, {displayModeBar: false, responsive: true});
+        });
+}
+
+// Fetch and render risk metrics gauges
+function renderRiskGauges() {
+    fetch('/api/risk-metrics')
+        .then(res => res.json())
+        .then(metrics => {
+            // VaR Gauge
+            let varGauge = {
+                type: "indicator",
+                mode: "gauge+number",
+                value: metrics.value_at_risk,
+                title: { text: "Value at Risk (VaR)", font: { size: 18 } },
+                gauge: {
+                    axis: { range: [null, metrics.value_at_risk * 1.5] },
+                    bar: { color: "#e74c3c" },
+                    steps: [
+                        { range: [0, metrics.value_at_risk * 0.7], color: "#f9e79f" },
+                        { range: [metrics.value_at_risk * 0.7, metrics.value_at_risk], color: "#f7ca18" },
+                        { range: [metrics.value_at_risk, metrics.value_at_risk * 1.5], color: "#e74c3c" }
+                    ]
+                }
+            };
+            // Expected Loss Gauge
+            let lossGauge = {
+                type: "indicator",
+                mode: "gauge+number",
+                value: metrics.expected_loss,
+                title: { text: "Expected Loss", font: { size: 18 } },
+                gauge: {
+                    axis: { range: [null, metrics.expected_loss * 1.5] },
+                    bar: { color: "#3498db" },
+                    steps: [
+                        { range: [0, metrics.expected_loss * 0.7], color: "#d6eaf8" },
+                        { range: [metrics.expected_loss * 0.7, metrics.expected_loss], color: "#85c1e9" },
+                        { range: [metrics.expected_loss, metrics.expected_loss * 1.5], color: "#3498db" }
+                    ]
+                }
+            };
+            Plotly.newPlot('var-gauge', [varGauge], {margin: {t: 0, b: 0}}, {displayModeBar: false, responsive: true});
+            Plotly.newPlot('expected-loss-gauge', [lossGauge], {margin: {t: 0, b: 0}}, {displayModeBar: false, responsive: true});
+        });
+}
+
+// Fetch and render alert notifications
+function renderAlerts() {
+    fetch('/api/alerts')
+        .then(res => res.json())
+        .then(data => {
+            const alertList = document.getElementById('alert-list');
+            alertList.innerHTML = '';
+            if (data.active_alerts && data.active_alerts.length > 0) {
+                data.active_alerts.forEach(idx => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item list-group-item-danger';
+                    li.textContent = `Anomaly detected: Event #${idx}`;
+                    alertList.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'list-group-item list-group-item-success';
+                li.textContent = 'No active alerts.';
+                alertList.appendChild(li);
+            }
+        });
+}
+
+// Initial render
+renderThreatHeatmap();
+renderLossHistogram();
+renderRiskGauges();
+renderAlerts();
+
+// Periodic updates
+setInterval(() => {
+    renderThreatHeatmap();
+    renderLossHistogram();
+    renderRiskGauges();
+    renderAlerts();
+}, 10000); // every 10 seconds
+</script>
 </body>
 </html> 
